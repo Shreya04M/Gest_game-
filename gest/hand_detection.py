@@ -5,9 +5,16 @@ import mediapipe as mp
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
-cap = cv2.VideoCapture(0)
+def open_camera():
+    for index in (0, 1, 2):
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            return cap
+        cap.release()
+    return None
 
-if not cap.isOpened():
+cap = open_camera()
+if cap is None:
     print("❌ Camera not opened")
     exit()
 
@@ -21,6 +28,8 @@ hands = mp_hands.Hands(
 print("✅ MediaPipe Hands running")
 def get_finger_states(hand_landmarks, handedness):
     # Landmark indices
+    #[Thumb, Index, Middle, Ring, Pinky]
+
     tips = [4, 8, 12, 16, 20]
     pips = [3, 6, 10, 14, 18]
 
@@ -39,6 +48,41 @@ def get_finger_states(hand_landmarks, handedness):
         )
 
     return finger_states
+def classify_gesture(finger_states):
+    thumb, index, middle, ring, pinky = finger_states
+
+    # Open Palm → all fingers open
+    if all(finger_states):
+        return "OPEN_PALM"
+
+    # Closed Fist → all fingers closed
+    if not any(finger_states):
+        return "CLOSED_FIST"
+
+    # Pointing → only index finger open
+    if index and not middle and not ring and not pinky:
+        return "POINTING"
+
+    return "NONE"
+def get_pointing_direction(hand_landmarks):
+    # Index finger tip and base
+    tip = hand_landmarks.landmark[8]   # Index tip
+    pip = hand_landmarks.landmark[6]   # Index middle joint
+
+    dx = tip.x - pip.x
+    dy = tip.y - pip.y
+
+    # Horizontal movement stronger than vertical
+    if abs(dx) > abs(dy):
+        if dx > 0:
+            return "RIGHT"
+        else:
+            return "LEFT"
+    else:
+        if dy > 0:
+            return "DOWN"
+        else:
+            return "UP"
 
 while True:
     ret, frame = cap.read()
@@ -52,9 +96,40 @@ while True:
     results = hands.process(rgb)
 
     if results.multi_hand_landmarks:
-        for hand_landmarks, handedness in zip(results.multi_hand_landmarks, results.multi_handedness):
+        for hand_landmarks, handedness in zip(
+            results.multi_hand_landmarks,
+            results.multi_handedness
+        ):
             hand_label = handedness.classification[0].label
             finger_states = get_finger_states(hand_landmarks, hand_label)
+
+            gesture = classify_gesture(finger_states)
+            action = "NONE"
+
+            if hand_label == "Right" and gesture == "POINTING":
+                direction = get_pointing_direction(hand_landmarks)
+                action = f"MOVE_{direction}"
+
+            # Display gesture
+            cv2.putText(
+                frame,
+                f"ACTION: {action}",
+                (10, 100),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 0),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"{hand_label}: {gesture}",
+                (10, 30 if hand_label == "Left" else 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2
+            )
 
             # Display finger states
             text = f"{hand_label}: {finger_states}"
@@ -74,11 +149,9 @@ while True:
                 mp_hands.HAND_CONNECTIONS
             )
 
-    cv2.imshow("Hand Detection", frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
+            cv2.imshow("Hand Detection", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 cap.release()
 cv2.destroyAllWindows()
 hands.close()
