@@ -6,9 +6,10 @@ mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
 def open_camera():
-    for index in (0, 1, 2):
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    for index in (0,1,2):
+        cap = cv2.VideoCapture(index)
         if cap.isOpened():
+            print("Camera opened at index:", index)
             return cap
         cap.release()
     return None
@@ -24,6 +25,7 @@ hands = mp_hands.Hands(
     min_detection_confidence=0.6,
     min_tracking_confidence=0.6
 )
+print("frame received")
 
 print("✅ MediaPipe Hands running")
 def get_finger_states(hand_landmarks, handedness):
@@ -87,8 +89,10 @@ def get_pointing_direction(hand_landmarks):
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("❌ Frame not captured")
-        break
+        print("No camera frame")
+        continue
+
+    print("frame received")  # debug line
 
     frame = cv2.flip(frame, 1)
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -102,15 +106,13 @@ while True:
         ):
             hand_label = handedness.classification[0].label
             finger_states = get_finger_states(hand_landmarks, hand_label)
-
             gesture = classify_gesture(finger_states)
-            action = "NONE"
 
+            action = "NONE"
             if hand_label == "Right" and gesture == "POINTING":
                 direction = get_pointing_direction(hand_landmarks)
                 action = f"MOVE_{direction}"
 
-            # Display gesture
             cv2.putText(
                 frame,
                 f"ACTION: {action}",
@@ -121,37 +123,19 @@ while True:
                 2
             )
 
-            cv2.putText(
-                frame,
-                f"{hand_label}: {gesture}",
-                (10, 30 if hand_label == "Left" else 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 0, 255),
-                2
-            )
-
-            # Display finger states
-            text = f"{hand_label}: {finger_states}"
-            cv2.putText(
-                frame,
-                text,
-                (10, 30 if hand_label == "Left" else 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 0, 0),
-                2
-            )
-
             mp_drawing.draw_landmarks(
                 frame,
                 hand_landmarks,
                 mp_hands.HAND_CONNECTIONS
             )
 
-            cv2.imshow("Hand Detection", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+    # IMPORTANT: always show frame
+    cv2.imshow("Hand Detection", frame)
+
+    # exit key
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
 cap.release()
 cv2.destroyAllWindows()
 hands.close()
